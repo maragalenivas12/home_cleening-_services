@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nestora — Home cleaning, booked in a minute</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head><body>
+<header class="nav"><div class="wrap nav-in">
+  <a class="logo" href="#" data-go="home">
+    <svg class="logo-mark" viewBox="0 0 64 64" aria-hidden="true">
+      <defs>
+        <linearGradient id="nestora-grad" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#1ab7c8"/>
+          <stop offset="1" stop-color="#0d7f92"/>
+        </linearGradient>
+      </defs>
+      <rect x="8" y="8" width="48" height="48" rx="16" fill="url(#nestora-grad)"/>
+      <path d="M18 31.5L32 20l14 11.5v13.5A4 4 0 0 1 42 49H22a4 4 0 0 1-4-4V31.5Z" fill="#fff"/>
+      <path d="M27 41h10v8H27z" fill="#fff" opacity="0.9"/>
+      <path d="M47 11.5l2.3 4.7 5.2.8-3.8 3.7 1 5.2-4.7-2.5-4.7 2.5 1-5.2-3.8-3.7 5.2-.8L47 11.5Z" fill="#ffd166"/>
+    </svg>
+    <span>Nestora</span>
+  </a>
+  <nav><a href="#services" data-go="home">Services</a><a href="#cleaners" data-go="home">Cleaners</a><a href="#" data-go="bookings">My bookings</a></nav>
+  <div id="authArea"></div>
+</div></header>
+<main id="app"></main>
+<footer class="foot"><div class="wrap">Nestora · College project — On-Demand Cleaning &amp; Home Service Booking · Node.js + Express backend</div></footer>
+<div id="modal" class="overlay" hidden><div class="sheet" role="dialog" aria-modal="true"><button class="x" aria-label="Close" id="closeModal">&times;</button><div id="modalBody"></div></div></div>
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body></html>
