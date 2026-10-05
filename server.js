@@ -22,7 +22,9 @@ const seed = () => ({
     { id: 6, name: 'Vikas More', skills: 'Move-in / out', years: 9, bio: 'Leads our largest handover cleans.', baseRating: 4.8, baseCount: 121 }
   ]
 });
-let db = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : seed();
+const ensureDataDir = () => { fs.mkdirSync(path.dirname(DB_FILE), { recursive: true }); if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify(seed(), null, 2)); };
+ensureDataDir();
+let db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
 const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 save();
 
