@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: nestora-home-cleaning
-    runtime: node
-    plan: free
-    buildCommand: npm ci
-    startCommand: npm start
-    healthCheckPath: /

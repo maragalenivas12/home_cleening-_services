@@ -9,12 +9,6 @@ npm start
 ```
 Open http://localhost:3000 (Node.js 16+ required). Data is stored in `data/db.json` (delete it to reset).
 
-## Deploy to Render
-
-The repository includes a Render Blueprint in `render.yaml`. In the [Render Dashboard](https://dashboard.render.com), choose **New > Blueprint**, connect `maragalenivas12/home_cleening-_services`, select the `main` branch, and deploy the Blueprint. Render will provide a public HTTPS URL that works on mobile browsers.
-
-The free service may sleep when idle, so its first request after inactivity can take longer. Account and booking data is stored in a local JSON file and is not persistent on the free plan; it can be lost when the service restarts or redeploys. Do not use the free deployment for production data.
-
 ## Tech
 Frontend: HTML, CSS, vanilla JavaScript (SPA). Backend: Node.js + Express REST API, JSON file storage, scrypt password hashing, token sessions.
 The responsive interface carries a shared visual design across the home page, service catalogue, booking flow, account forms, worker registration, and booking history.
