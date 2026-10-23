@@ -4,25 +4,22 @@
 <title>Nestora — Home cleaning, booked in a minute</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="nestora-mark.png">
 <link rel="stylesheet" href="styles.css">
-</head><body>
+</head><body id="top">
 <header class="nav"><div class="wrap nav-in">
   <a class="logo" href="#" data-go="home">
-    <svg class="logo-mark" viewBox="0 0 64 64" aria-hidden="true">
-      <defs>
-        <linearGradient id="nestora-grad" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
-          <stop stop-color="#1ab7c8"/>
-          <stop offset="1" stop-color="#0d7f92"/>
-        </linearGradient>
-      </defs>
-      <rect x="8" y="8" width="48" height="48" rx="16" fill="url(#nestora-grad)"/>
-      <path d="M18 31.5L32 20l14 11.5v13.5A4 4 0 0 1 42 49H22a4 4 0 0 1-4-4V31.5Z" fill="#fff"/>
-      <path d="M27 41h10v8H27z" fill="#fff" opacity="0.9"/>
-      <path d="M47 11.5l2.3 4.7 5.2.8-3.8 3.7 1 5.2-4.7-2.5-4.7 2.5 1-5.2-3.8-3.7 5.2-.8L47 11.5Z" fill="#ffd166"/>
-    </svg>
+    <img class="logo-mark" src="nestora-mark.png" alt="">
     <span>Nestora</span>
   </a>
-  <nav><a href="#services" data-go="home">Services</a><a href="#cleaners" data-go="home">Cleaners</a><a href="#" data-go="bookings">My bookings</a></nav>
+  <nav aria-label="Primary navigation">
+    <a class="active" href="#top" data-go="home">Home</a>
+    <a href="#services" data-go="home">Services</a>
+    <a href="#about" data-go="home">About</a>
+    <a href="#cleaners" data-go="cleaners">Meet the cleaners</a>
+    <a href="#cleaners" data-go="cleaners" data-register-worker>New registration</a>
+    <a href="#" data-go="bookings">My bookings</a>
+  </nav>
   <div id="authArea"></div>
 </div></header>
 <main id="app"></main>

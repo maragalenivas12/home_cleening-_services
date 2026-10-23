@@ -1,8 +1,30 @@
-const express = require('express'), cors = require('cors'), crypto = require('crypto'), fs = require('fs'), path = require('path');
+const express = require('express'), cors = require('cors'), crypto = require('crypto'), fs = require('fs'), path = require('path'), nodemailer = require('nodemailer');
+// Load local development secrets without requiring an extra dependency. Environment
+// variables supplied by the host always take precedence over .env values.
+const loadEnv = () => {
+  const envFile = path.join(__dirname, '.env');
+  if (!fs.existsSync(envFile)) return;
+  for (const rawLine of fs.readFileSync(envFile, 'utf8').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const separator = line.indexOf('=');
+    if (separator < 1) continue;
+    const key = line.slice(0, separator).trim();
+    let value = line.slice(separator + 1).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || process.env[key] !== undefined) continue;
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+    process.env[key] = value;
+  }
+};
+loadEnv();
 const app = express(), DB_FILE = path.join(__dirname, 'data', 'db.json'), PORT = process.env.PORT || 3000;
 app.use(cors()); app.use(express.json()); app.use(express.static(path.join(__dirname, 'public')));
 
 const SLOTS = ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00'];
+const addedPackages = [
+  { id: 7, name: 'Bathroom Deep Clean', category: 'Cleaning', price: 1299, hours: 2, icon: 'drop', photo: 'package-bathroom-deep.jpg', desc: 'Remove grime, soap scum and buildup for a sparkling bathroom.', includes: ['Tile and grout scrubbing', 'Toilet and sink sanitization', 'Tap and shower descaling', 'Mirror and fixture polish'] },
+  { id: 8, name: 'Balcony & Window Clean', category: 'Cleaning', price: 899, hours: 2, icon: 'home', photo: 'package-balcony-window.jpg', desc: 'Clear dust and streaks for brighter rooms and a fresher balcony.', includes: ['Interior window glass cleaning', 'Window frame and sill wipe-down', 'Balcony floor sweeping and mopping', 'Railings and ledge dusting'] }
+];
 const seed = () => ({
   users: [], sessions: {}, bookings: [], nextId: 1,
   packages: [
@@ -11,7 +33,8 @@ const seed = () => ({
     { id: 3, name: 'Kitchen & Bathroom', category: 'Cleaning', price: 1299, hours: 3, icon: 'drop', desc: 'Degreasing, descaling and disinfecting where it matters most.', includes: ['Chimney & hob degrease', 'Tile & tap descaling', 'Toilet disinfection', 'Sink polish'] },
     { id: 4, name: 'Sofa & Carpet Shampoo', category: 'Upholstery', price: 1499, hours: 3, icon: 'sofa', desc: 'Deep shampoo and vacuum to lift stains and odour.', includes: ['Dry vacuuming', 'Foam shampoo', 'Stain treatment', 'Quick-dry finish'] },
     { id: 5, name: 'Move-in / Move-out Clean', category: 'Cleaning', price: 3499, hours: 6, icon: 'box', desc: 'Get an empty flat handover-ready or ready to unpack.', includes: ['Deep clean of all rooms', 'Inside cupboards', 'Appliance exteriors', 'Balcony wash'] },
-    { id: 6, name: 'AC Service & Cleaning', category: 'Appliance', price: 699, hours: 1, icon: 'wind', desc: 'Jet-wash of indoor unit, filters and a cooling check.', includes: ['Filter jet wash', 'Coil cleaning', 'Gas pressure check', 'Drain flush'] }
+    { id: 6, name: 'AC Service & Cleaning', category: 'Appliance', price: 699, hours: 1, icon: 'wind', desc: 'Jet-wash of indoor unit, filters and a cooling check.', includes: ['Filter jet wash', 'Coil cleaning', 'Gas pressure check', 'Drain flush'] },
+    ...addedPackages
   ],
   staff: [
     { id: 1, name: 'Sunita Patil', skills: 'Deep cleaning', years: 8, bio: 'Detail-obsessed; known for spotless kitchens.', baseRating: 4.9, baseCount: 212 },
@@ -25,12 +48,52 @@ const seed = () => ({
 const ensureDataDir = () => { fs.mkdirSync(path.dirname(DB_FILE), { recursive: true }); if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify(seed(), null, 2)); };
 ensureDataDir();
 let db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+if (!db.pendingRegistrations) db.pendingRegistrations = {};
 const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+if (!Array.isArray(db.packages)) db.packages = [];
+addedPackages.forEach(packageToAdd => {
+  const existing = db.packages.find(entry => String(entry.name || '').trim().toLowerCase() === packageToAdd.name.toLowerCase());
+  if (existing) {
+    existing.photo = packageToAdd.photo;
+    return;
+  }
+  const nextPackageId = db.packages.reduce((maxId, existing) => Math.max(maxId, Number(existing.id) || 0), 0) + 1;
+  db.packages.push({ ...packageToAdd, id: nextPackageId });
+});
 save();
 
 const hash = (pw, salt = crypto.randomBytes(16).toString('hex')) => salt + ':' + crypto.scryptSync(pw, salt, 32).toString('hex');
 const verify = (pw, stored) => { const [salt] = stored.split(':'); return hash(pw, salt) === stored; };
 const pub = u => ({ id: u.id, name: u.name, email: u.email, phone: u.phone });
+const createSession = user => { const token = crypto.randomBytes(24).toString('hex'); db.sessions[token] = user.id; return token; };
+const sendOtp = async (email, otp) => {
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  // Gmail displays App Passwords in groups; ignore pasted whitespace.
+  const pass = String(process.env.SMTP_PASS || '').replace(/\s+/g, '');
+  if (!host || !user || !pass) throw new Error('Email OTP is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS before starting Nestora.');
+  if (host.toLowerCase() === 'smtp.gmail.com' && pass.length !== 16) {
+    throw new Error('Gmail SMTP_PASS must be the 16-character Google App Password, not your regular Gmail password.');
+  }
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = String(process.env.SMTP_SECURE || (port === 465)).toLowerCase() === 'true';
+  const transporter = nodemailer.createTransport({ host, port, secure, auth: { user, pass } });
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || user,
+      to: email,
+      subject: 'Your Nestora verification code',
+      text: `Your Nestora verification code is ${otp}. It expires in 10 minutes.`,
+      html: `<p>Your Nestora verification code is <strong style="font-size:20px;letter-spacing:3px">${otp}</strong>.</p><p>This code expires in 10 minutes.</p>`
+    });
+    return { mode: 'email' };
+  } catch (error) {
+    if (host.toLowerCase() === 'smtp.gmail.com' && error.code === 'EAUTH') {
+      throw new Error('Gmail rejected SMTP authentication. Check that SMTP_USER is the Gmail account that created the 16-character App Password in SMTP_PASS, then restart Nestora.');
+    }
+    throw new Error(`Could not send the OTP email: ${error.code || error.message}`);
+  }
+};
 const auth = (req, res, next) => {
   const uid = db.sessions[(req.headers.authorization || '').replace('Bearer ', '')];
   const user = db.users.find(u => u.id === uid);
@@ -39,26 +102,68 @@ const auth = (req, res, next) => {
 };
 const staffView = s => {
   const rated = db.bookings.filter(b => b.staffId === s.id && b.rating);
-  const sum = rated.reduce((a, b) => a + b.rating, 0), n = s.baseCount + rated.length;
-  return { ...s, rating: +((s.baseRating * s.baseCount + sum) / n).toFixed(2), reviews: n };
+  const baseCount = Number(s.baseCount) || 0;
+  const sum = rated.reduce((a, b) => a + b.rating, 0), n = baseCount + rated.length;
+  const rating = n ? +((s.baseRating * baseCount + sum) / n).toFixed(2) : null;
+  return { ...s, rating, reviews: n };
 };
 const busy = (date, slot) => db.bookings.filter(b => b.date === date && b.slot === slot && b.status !== 'cancelled').map(b => b.staffId);
 const today = () => new Date().toISOString().slice(0, 10);
 
 // ---- Auth ----
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { name, email, password, phone } = req.body || {};
   if (!name || !email || !password || password.length < 6) return res.status(400).json({ error: 'Name, email and a password of 6+ characters are required.' });
-  if (db.users.some(u => u.email === email.toLowerCase())) return res.status(409).json({ error: 'That email is already registered. Try signing in.' });
-  const user = { id: db.nextId++, name: name.trim(), email: email.toLowerCase(), phone: phone || '', password: hash(password) };
-  db.users.push(user); const token = crypto.randomBytes(24).toString('hex'); db.sessions[token] = user.id; save();
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanPhone = String(phone || '').trim();
+  if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address.' });
+  if (cleanPhone && !/^\+[1-9]\d{7,14}$/.test(cleanPhone)) return res.status(400).json({ error: 'Enter a valid mobile number with country code, for example +919876543210.' });
+
+  const verificationId = crypto.randomBytes(24).toString('hex');
+  const otp = crypto.randomInt(100000, 1000000).toString();
+  db.pendingRegistrations[verificationId] = {
+    name: name.trim(), email: cleanEmail, phone: cleanPhone, password: hash(password), otp: hash(otp),
+    expiresAt: Date.now() + 10 * 60 * 1000, attempts: 0
+  };
+  try { await sendOtp(cleanEmail, otp); }
+  catch (error) { delete db.pendingRegistrations[verificationId]; return res.status(503).json({ error: error.message }); }
+  save();
+  res.status(202).json({
+    verificationId,
+    message: `A six-digit OTP was sent by email to ${cleanEmail}.`
+  });
+});
+app.post('/api/auth/register/verify-otp', (req, res) => {
+  const { verificationId, otp } = req.body || {};
+  const pending = db.pendingRegistrations[verificationId];
+  if (!pending) return res.status(400).json({ error: 'This OTP request is no longer valid. Please register again.' });
+  if (Date.now() > pending.expiresAt) {
+    delete db.pendingRegistrations[verificationId]; save();
+    return res.status(400).json({ error: 'This OTP has expired. Please register again.' });
+  }
+  if (!/^\d{6}$/.test(String(otp || '')) || !verify(String(otp), pending.otp)) {
+    pending.attempts += 1;
+    if (pending.attempts >= 5) delete db.pendingRegistrations[verificationId];
+    save();
+    return res.status(400).json({ error: pending.attempts >= 5 ? 'Too many incorrect OTP attempts. Please register again.' : 'Enter the correct six-digit OTP.' });
+  }
+  // A verified email can be used again for testing or re-registration. Reuse the
+  // original account so the address never creates duplicate login records.
+  let user = db.users.find(u => u.email === pending.email);
+  if (user) Object.assign(user, { name: pending.name, phone: pending.phone, password: pending.password });
+  else {
+    user = { id: db.nextId++, name: pending.name, email: pending.email, phone: pending.phone, password: pending.password };
+    db.users.push(user);
+  }
+  delete db.pendingRegistrations[verificationId];
+  const token = createSession(user); save();
   res.status(201).json({ token, user: pub(user) });
 });
 app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body || {};
   const user = db.users.find(u => u.email === (email || '').toLowerCase());
   if (!user || !verify(password || '', user.password)) return res.status(401).json({ error: 'Email or password is incorrect.' });
-  const token = crypto.randomBytes(24).toString('hex'); db.sessions[token] = user.id; save();
+  const token = createSession(user); save();
   res.json({ token, user: pub(user) });
 });
 app.get('/api/auth/me', auth, (req, res) => res.json({ user: pub(req.user) }));
@@ -66,6 +171,43 @@ app.get('/api/auth/me', auth, (req, res) => res.json({ user: pub(req.user) }));
 // ---- Catalogue ----
 app.get('/api/packages', (req, res) => res.json(db.packages));
 app.get('/api/staff', (req, res) => res.json(db.staff.map(staffView).sort((a, b) => b.rating - a.rating)));
+app.post('/api/workers/register', (req, res) => {
+  const { name, experience, mobile, address, skills } = req.body || {};
+  const cleanName = String(name || '').trim();
+  const cleanMobile = String(mobile || '').trim();
+  const cleanAddress = String(address || '').trim();
+  const cleanSkills = String(skills || '').trim();
+  const years = Number(experience);
+
+  if (!cleanName) return res.status(400).json({ error: 'Worker name is required.' });
+  if (experience === undefined || experience === null || String(experience).trim() === '') return res.status(400).json({ error: 'Worker experience is required.' });
+  if (!Number.isFinite(years) || years < 0) return res.status(400).json({ error: 'Enter valid experience in years.' });
+  if (!/^\+?[0-9()\-\s]{7,15}$/.test(cleanMobile)) return res.status(400).json({ error: 'Enter a valid mobile number.' });
+  if (cleanAddress.length < 8) return res.status(400).json({ error: 'Enter the worker address with at least 8 characters.' });
+
+  const phoneKey = value => {
+    const digits = String(value || '').replace(/\D/g, '');
+    return digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits;
+  };
+  if (db.staff.some(worker => phoneKey(worker.phone) === phoneKey(cleanMobile))) {
+    return res.status(409).json({ error: 'A worker is already registered with this mobile number.' });
+  }
+
+  const worker = {
+    id: db.staff.reduce((maxId, staffMember) => Math.max(maxId, staffMember.id || 0), 0) + 1,
+    name: cleanName,
+    skills: cleanSkills || (years >= 5 ? 'Experienced cleaner' : 'Home service worker'),
+    years,
+    bio: `${cleanSkills || 'Home service'} professional, ready to help care for your home.`,
+    baseRating: 4.5,
+    baseCount: 0,
+    phone: cleanMobile,
+    address: cleanAddress
+  };
+
+  db.staff.push(worker); save();
+  res.status(201).json(worker);
+});
 app.get('/api/slots', (req, res) => {           // free cleaners per slot for a date
   const { date } = req.query;
   res.json(SLOTS.map(slot => ({ slot, free: db.staff.length - busy(date, slot).length })));
