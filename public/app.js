@@ -52,7 +52,7 @@ function authModal(mode, then) {
       <div class="tabs"><button class="${reg ? '' : 'on'}" data-m="login">Sign in</button><button class="${reg ? 'on' : ''}" data-m="register">Create account</button></div>
       ${reg ? '<label for="fn">Full name</label><input id="fn" autocomplete="name" placeholder="Your full name"><label for="ph">Mobile number (optional)</label><input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210">' : ''}
       <label for="em">Email address</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com"><label for="pw">Password</label><input id="pw" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" placeholder="At least 6 characters">
-      <div class="err" id="err"></div><div class="row"><span></span><button class="btn" id="go">${reg ? 'Continue to OTP' : 'Sign in'} <span aria-hidden="true">→</span></button></div>
+      <div class="err" id="err"></div><div class="row"><span></span><button class="btn" id="go">${reg ? 'Create account' : 'Sign in'} <span aria-hidden="true">→</span></button></div>
       <p class="auth-footnote">${reg ? 'Already have an account?' : 'New to Nestora?'} <button class="text-button" data-m="${reg ? 'login' : 'register'}">${reg ? 'Sign in' : 'Create an account'}</button></p>
     </div>
   </div>`);
@@ -62,19 +62,6 @@ function authModal(mode, then) {
     try {
       const body = { email: $('#em').value, password: $('#pw').value, ...(reg && { name: $('#fn').value, phone: $('#ph').value }) };
       const d = await api('/auth/' + mode, { method: 'POST', body });
-      if (reg) { otpModal(d, then); return; }
-      completeSignIn(d, then);
-    } catch (e) { $('#err').textContent = e.message; }
-  };
-}
-function otpModal(registration, then) {
-  openModal(`<div class="form-page-heading"><span class="form-icon">✉</span><h3>Verify your email</h3></div><p class="sub">${esc(registration.message || 'A six-digit OTP was sent to your email.')} Enter it to create your account.</p>
-    <label for="otp">Six-digit OTP</label><input id="otp" inputmode="numeric" autocomplete="one-time-code" pattern="\\d{6}" maxlength="6" placeholder="123456">
-    <div class="err" id="err"></div><div class="row"><button class="btn ghost" id="otp-back">Back</button><button class="btn" id="otp-verify">Verify & create account</button></div>`);
-  $('#otp-back').onclick = () => authModal('register', then);
-  $('#otp-verify').onclick = async () => {
-    try {
-      const d = await api('/auth/register/verify-otp', { method: 'POST', body: { verificationId: registration.verificationId, otp: $('#otp').value.trim() } });
       completeSignIn(d, then);
     } catch (e) { $('#err').textContent = e.message; }
   };

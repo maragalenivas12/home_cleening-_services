@@ -1,1 +1,1 @@
-{"name":"nestora","version":"1.0.0","description":"On-demand home cleaning booking portal","main":"server.js","scripts":{"start":"node server.js"},"dependencies":{"cors":"^2.8.5","express":"^4.19.2","nodemailer":"^10.1.1"}}
+{"name":"nestora","version":"1.0.0","description":"On-demand home cleaning booking portal","main":"server.js","scripts":{"start":"node server.js"},"dependencies":{"cors":"^2.8.5","express":"^4.19.2"}}

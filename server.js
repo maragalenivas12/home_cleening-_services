@@ -1,4 +1,4 @@
-const express = require('express'), cors = require('cors'), crypto = require('crypto'), fs = require('fs'), path = require('path'), nodemailer = require('nodemailer');
+const express = require('express'), cors = require('cors'), crypto = require('crypto'), fs = require('fs'), path = require('path');
 // Load local development secrets without requiring an extra dependency. Environment
 // variables supplied by the host always take precedence over .env values.
 const loadEnv = () => {
@@ -48,7 +48,7 @@ const seed = () => ({
 const ensureDataDir = () => { fs.mkdirSync(path.dirname(DB_FILE), { recursive: true }); if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify(seed(), null, 2)); };
 ensureDataDir();
 let db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-if (!db.pendingRegistrations) db.pendingRegistrations = {};
+delete db.pendingRegistrations;
 const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 if (!Array.isArray(db.packages)) db.packages = [];
 addedPackages.forEach(packageToAdd => {
@@ -66,34 +66,6 @@ const hash = (pw, salt = crypto.randomBytes(16).toString('hex')) => salt + ':' +
 const verify = (pw, stored) => { const [salt] = stored.split(':'); return hash(pw, salt) === stored; };
 const pub = u => ({ id: u.id, name: u.name, email: u.email, phone: u.phone });
 const createSession = user => { const token = crypto.randomBytes(24).toString('hex'); db.sessions[token] = user.id; return token; };
-const sendOtp = async (email, otp) => {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  // Gmail displays App Passwords in groups; ignore pasted whitespace.
-  const pass = String(process.env.SMTP_PASS || '').replace(/\s+/g, '');
-  if (!host || !user || !pass) throw new Error('Email OTP is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS before starting Nestora.');
-  if (host.toLowerCase() === 'smtp.gmail.com' && pass.length !== 16) {
-    throw new Error('Gmail SMTP_PASS must be the 16-character Google App Password, not your regular Gmail password.');
-  }
-  const port = Number(process.env.SMTP_PORT || 587);
-  const secure = String(process.env.SMTP_SECURE || (port === 465)).toLowerCase() === 'true';
-  const transporter = nodemailer.createTransport({ host, port, secure, auth: { user, pass } });
-  try {
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || user,
-      to: email,
-      subject: 'Your Nestora verification code',
-      text: `Your Nestora verification code is ${otp}. It expires in 10 minutes.`,
-      html: `<p>Your Nestora verification code is <strong style="font-size:20px;letter-spacing:3px">${otp}</strong>.</p><p>This code expires in 10 minutes.</p>`
-    });
-    return { mode: 'email' };
-  } catch (error) {
-    if (host.toLowerCase() === 'smtp.gmail.com' && error.code === 'EAUTH') {
-      throw new Error('Gmail rejected SMTP authentication. Check that SMTP_USER is the Gmail account that created the 16-character App Password in SMTP_PASS, then restart Nestora.');
-    }
-    throw new Error(`Could not send the OTP email: ${error.code || error.message}`);
-  }
-};
 const auth = (req, res, next) => {
   const uid = db.sessions[(req.headers.authorization || '').replace('Bearer ', '')];
   const user = db.users.find(u => u.id === uid);
@@ -111,52 +83,20 @@ const busy = (date, slot) => db.bookings.filter(b => b.date === date && b.slot =
 const today = () => new Date().toISOString().slice(0, 10);
 
 // ---- Auth ----
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', (req, res) => {
   const { name, email, password, phone } = req.body || {};
-  if (!name || !email || !password || password.length < 6) return res.status(400).json({ error: 'Name, email and a password of 6+ characters are required.' });
-  const cleanEmail = email.trim().toLowerCase();
+  const cleanName = typeof name === 'string' ? name.trim() : '';
+  const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const cleanPassword = typeof password === 'string' ? password : '';
+  if (!cleanName || !cleanEmail || cleanPassword.length < 6) return res.status(400).json({ error: 'Name, email and a password of 6+ characters are required.' });
   const cleanPhone = String(phone || '').trim();
   if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address.' });
   if (cleanPhone && !/^\+[1-9]\d{7,14}$/.test(cleanPhone)) return res.status(400).json({ error: 'Enter a valid mobile number with country code, for example +919876543210.' });
-
-  const verificationId = crypto.randomBytes(24).toString('hex');
-  const otp = crypto.randomInt(100000, 1000000).toString();
-  db.pendingRegistrations[verificationId] = {
-    name: name.trim(), email: cleanEmail, phone: cleanPhone, password: hash(password), otp: hash(otp),
-    expiresAt: Date.now() + 10 * 60 * 1000, attempts: 0
-  };
-  try { await sendOtp(cleanEmail, otp); }
-  catch (error) { delete db.pendingRegistrations[verificationId]; return res.status(503).json({ error: error.message }); }
+  if (db.users.some(user => user.email === cleanEmail)) return res.status(409).json({ error: 'An account with this email already exists. Please sign in.' });
+  const user = { id: db.nextId++, name: cleanName, email: cleanEmail, phone: cleanPhone, password: hash(cleanPassword) };
+  db.users.push(user);
+  const token = createSession(user);
   save();
-  res.status(202).json({
-    verificationId,
-    message: `A six-digit OTP was sent by email to ${cleanEmail}.`
-  });
-});
-app.post('/api/auth/register/verify-otp', (req, res) => {
-  const { verificationId, otp } = req.body || {};
-  const pending = db.pendingRegistrations[verificationId];
-  if (!pending) return res.status(400).json({ error: 'This OTP request is no longer valid. Please register again.' });
-  if (Date.now() > pending.expiresAt) {
-    delete db.pendingRegistrations[verificationId]; save();
-    return res.status(400).json({ error: 'This OTP has expired. Please register again.' });
-  }
-  if (!/^\d{6}$/.test(String(otp || '')) || !verify(String(otp), pending.otp)) {
-    pending.attempts += 1;
-    if (pending.attempts >= 5) delete db.pendingRegistrations[verificationId];
-    save();
-    return res.status(400).json({ error: pending.attempts >= 5 ? 'Too many incorrect OTP attempts. Please register again.' : 'Enter the correct six-digit OTP.' });
-  }
-  // A verified email can be used again for testing or re-registration. Reuse the
-  // original account so the address never creates duplicate login records.
-  let user = db.users.find(u => u.email === pending.email);
-  if (user) Object.assign(user, { name: pending.name, phone: pending.phone, password: pending.password });
-  else {
-    user = { id: db.nextId++, name: pending.name, email: pending.email, phone: pending.phone, password: pending.password };
-    db.users.push(user);
-  }
-  delete db.pendingRegistrations[verificationId];
-  const token = createSession(user); save();
   res.status(201).json({ token, user: pub(user) });
 });
 app.post('/api/auth/login', (req, res) => {
